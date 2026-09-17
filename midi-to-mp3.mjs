@@ -42,9 +42,29 @@ function readVarLen(buf, off) {
   return [v, i];
 }
 
+function sniffNonMidi(buf) {
+  const head = buf.slice(0, 64).toString("utf8").trim();
+  if (head.startsWith("<")) {
+    if (head.includes("NoSuchKey") || head.includes("<Error>")) {
+      return "This is not a MIDI file — it is a download-error page saved with a .mid name (the link was dead). Please download the file again.";
+    }
+    return "This is not a MIDI file — it looks like a web page saved with a .mid name. Please download the actual MIDI file.";
+  }
+  if (head.startsWith("RIFF")) {
+    return "This is a RIFF (.rmi) MIDI file, not a Standard MIDI (.mid) file. Re-export it as .mid and try again.";
+  }
+  if (head.startsWith("ID3") || (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0)) {
+    return "This is an MP3 file, not a MIDI file.";
+  }
+  if (buf.length < 14) {
+    return `This file is too small to be a MIDI file (${buf.length} bytes). The download probably failed.`;
+  }
+  return "not a Standard MIDI File (missing MThd)";
+}
+
 function parseMidi(buf) {
   if (buf.length < 14 || buf.slice(0, 4).toString("ascii") !== "MThd") {
-    throw new Error("not a Standard MIDI File (missing MThd)");
+    throw new Error(sniffNonMidi(buf));
   }
   const format = buf.readUInt16BE(8);
   const ntracks = buf.readUInt16BE(10);

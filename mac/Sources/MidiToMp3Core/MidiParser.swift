@@ -23,16 +23,42 @@ public struct ParsedSong: Sendable {
 
 public enum MidiParseError: Error, LocalizedError {
     case notSMF
+    case notMidiFile(String)
     case unsupportedFormat
     case truncated
 
     public var errorDescription: String? {
         switch self {
-        case .notSMF: return "Not a Standard MIDI File."
+        case .notSMF: return "Not a Standard MIDI file."
+        case let .notMidiFile(detail): return detail
         case .unsupportedFormat: return "Only MIDI format 0/1 files are supported."
         case .truncated: return "MIDI file is truncated."
         }
     }
+}
+
+/// Look at the first bytes and explain what the file actually is when it
+/// is not a Standard MIDI File (dead download links saved as .mid are the
+/// classic case — they are XML error pages).
+private func sniffNonMidi(_ bytes: [UInt8]) -> MidiParseError {
+    let head = String(bytes: bytes.prefix(64), encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if head.hasPrefix("<") {
+        if head.contains("NoSuchKey") || head.contains("<Error>") {
+            return .notMidiFile("This is not a MIDI file — it is a download-error page saved with a .mid name (the link was dead). Please download the file again.")
+        }
+        return .notMidiFile("This is not a MIDI file — it looks like a web page saved with a .mid name. Please download the actual MIDI file.")
+    }
+    if head.hasPrefix("RIFF") {
+        return .notMidiFile("This is a RIFF (.rmi) MIDI file, not a Standard MIDI (.mid) file. Re-export it as .mid and try again.")
+    }
+    if head.hasPrefix("ID3") || bytes.prefix(2).elementsEqual([0xFF, 0xFB]) {
+        return .notMidiFile("This is an MP3 file, not a MIDI file.")
+    }
+    if head.hasPrefix("RIFF") == false, bytes.count < 14 {
+        return .notMidiFile("This file is too small to be a MIDI file (\(bytes.count) bytes). The download probably failed.")
+    }
+    return .notSMF
 }
 
 private struct Reader {
@@ -98,7 +124,7 @@ private enum RawEvent {
 /// on/off assembly. Every track renders as piano.
 public func parseMidi(_ data: Data) throws -> ParsedSong {
     var r = Reader(bytes: Array(data))
-    guard r.ascii(at: 0, length: 4) == "MThd" else { throw MidiParseError.notSMF }
+    guard r.ascii(at: 0, length: 4) == "MThd" else { throw sniffNonMidi(r.bytes) }
     r.offset = 4
     _ = try r.u32be() // header length
     let format = try r.u16be()

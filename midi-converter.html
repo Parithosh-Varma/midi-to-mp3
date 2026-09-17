@@ -135,9 +135,25 @@
     return [v, i];
   }
 
+  function sniffNonMidi(bytes) {
+    const head = String.fromCharCode.apply(null, bytes.subarray(0, 64)).trim();
+    if (head[0] === '<') {
+      if (head.includes('NoSuchKey') || head.includes('<Error>'))
+        return 'This is not a MIDI file — it is a download-error page saved with a .mid name (the link was dead). Please download the file again.';
+      return 'This is not a MIDI file — it looks like a web page saved with a .mid name. Please download the actual MIDI file.';
+    }
+    if (head.startsWith('RIFF'))
+      return 'This is a RIFF (.rmi) MIDI file, not a Standard MIDI (.mid) file. Re-export it as .mid and try again.';
+    if (head.startsWith('ID3') || (bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0))
+      return 'This is an MP3 file, not a MIDI file.';
+    if (bytes.length < 14)
+      return 'This file is too small to be a MIDI file (' + bytes.length + ' bytes). The download probably failed.';
+    return 'not a Standard MIDI File';
+  }
+
   function parseMidi(bytes) {
     const ascii = (o, n) => String.fromCharCode.apply(null, bytes.subarray(o, o + n));
-    if (bytes.length < 14 || ascii(0, 4) !== 'MThd') throw new Error('not a Standard MIDI File');
+    if (bytes.length < 14 || ascii(0, 4) !== 'MThd') throw new Error(sniffNonMidi(bytes));
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const format = view.getUint16(8);
     const ntracks = view.getUint16(10);
