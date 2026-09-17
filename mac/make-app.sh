@@ -11,6 +11,7 @@ swift build -c release --product MidiToMp3
 rm -rf "$APP_NAME.app"
 mkdir -p "$APP_NAME.app/Contents/MacOS" "$APP_NAME.app/Contents/Resources"
 cp ".build/release/MidiToMp3" "$APP_NAME.app/Contents/MacOS/$APP_NAME"
+cp "Icon.icns" "$APP_NAME.app/Contents/Resources/Icon.icns"
 
 cat > "$APP_NAME.app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -31,6 +32,10 @@ cat > "$APP_NAME.app/Contents/Info.plist" <<EOF
     <string>1.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>Icon</string>
+    <key>CFBundleIconName</key>
+    <string>Icon</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>

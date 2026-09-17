@@ -639,6 +639,7 @@ Options:
   --no-reverb   dry render, no room
   --tail SEC    extra ring-out after the last note (default 1.8)
   --transpose N shift all notes by N semitones (e.g. -12 = one octave down)
+  --tempo F   speed multiplier (e.g. 1.25 = 25% faster, 0.5 = half time)
   --engine E    samples (real grand, default) or synth (built-in fallback)
   --samples-dir DIR  where the Salamander .wav files live (default ./salamander)
 
@@ -660,6 +661,7 @@ async function main() {
   let reverb = true;
   let tail = 1.8;
   let transpose = 0;
+  let tempo = 1.0;
   let engine = "samples";
   let samplesDir = path.join(path.dirname(new URL(import.meta.url).pathname), "salamander");
   for (let i = 0; i < args.length; i++) {
@@ -669,6 +671,7 @@ async function main() {
     else if (a === "--no-reverb") reverb = false;
     else if (a === "--tail") tail = parseFloat(args[++i]);
     else if (a === "--transpose") transpose = parseInt(args[++i], 10);
+    else if (a === "--tempo") tempo = parseFloat(args[++i]);
     else if (a === "--engine") engine = args[++i];
     else if (a === "--samples-dir") samplesDir = args[++i];
     else if (a.startsWith("--")) throw new Error("unknown option " + a);
@@ -685,6 +688,9 @@ async function main() {
   if (!Number.isFinite(bitrate) || bitrate < 64 || bitrate > 320) {
     throw new Error("--bitrate must be 64..320");
   }
+  if (!Number.isFinite(tempo) || tempo < 0.25 || tempo > 4) {
+    throw new Error("--tempo must be 0.25..4");
+  }
 
   console.log(`Reading ${input} ...`);
   const parsed = parseMidi(fs.readFileSync(input));
@@ -694,6 +700,10 @@ async function main() {
       .map((n) => ({ ...n, midi: n.midi + transpose }))
       .filter((n) => n.midi >= 21 && n.midi <= 108);
     console.log(`  transposed ${transpose > 0 ? "+" : ""}${transpose} semitones`);
+  }
+  if (tempo !== 1) {
+    notes = notes.map((n) => ({ ...n, start: n.start / tempo, end: n.end / tempo }));
+    console.log(`  tempo x${tempo}`);
   }
   const duration = notes.reduce((m, n) => Math.max(m, n.end), 0);
   if (!notes.length) throw new Error("no playable notes found in MIDI");

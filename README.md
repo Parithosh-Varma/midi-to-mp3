@@ -1,5 +1,7 @@
 # midi-to-mp3
 
+<img src="logo.png" width="128" alt="midi-to-mp3 logo">
+
 Convert Standard MIDI files (`.mid`) to MP3 with a **real grand piano sound** — no FluidSynth, no ffmpeg, no uploads. Everything runs locally.
 
 Two ways to use it:
