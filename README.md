@@ -6,6 +6,7 @@ Two ways to use it:
 
 - **Command line** — `midi-to-mp3.mjs` (Node 18+)
 - **Browser** — `midi-converter.html` (drag & drop, fully offline after load)
+- **Native Mac app** — `mac/` (SwiftUI, drag & drop, exports AAC + WAV; `./make-app.sh`, no Xcode needed)
 
 ## How it sounds like a grand
 
