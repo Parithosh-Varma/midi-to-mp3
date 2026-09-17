@@ -44,6 +44,7 @@ final class ConverterModel: ObservableObject {
 
     let samples = SampleManager()
     private var player: AVAudioPlayer?
+    private var convertTask: Task<Void, Never>?
 
     func addFiles(_ urls: [URL]) {
         let mids = urls.filter { ["mid", "midi"].contains($0.pathExtension.lowercased()) }
@@ -52,8 +53,12 @@ final class ConverterModel: ObservableObject {
         }
     }
 
-    func convertAll() async {
+    func convertAll() {
         guard !isConverting else { return }
+        convertTask = Task { await runConversions() }
+    }
+
+    private func runConversions() async {
         isConverting = true
         stopPlayback()
         defer { isConverting = false }
@@ -61,27 +66,31 @@ final class ConverterModel: ObservableObject {
         do {
             piano = try await samples.samples()
         } catch {
-            for i in jobs.indices where jobs[i].status == .queued {
-                jobs[i].status = .failed(error.localizedDescription)
+            for i in jobs.indices {
+                if case .queued = jobs[i].status {
+                    jobs[i].status = .failed(error.localizedDescription)
+                }
             }
             return
         }
         try? FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-        for i in jobs.indices {
-            guard jobs[i].status == .queued else { continue }
+        for id in jobs.map(\.id) {
+            if Task.isCancelled { break }
+            guard let i = jobs.firstIndex(where: { $0.id == id }) else { continue }
+            guard case .queued = jobs[i].status else { continue }
+            let source = jobs[i].source
             jobs[i].status = .converting(0)
             let (stream, cont) = AsyncStream<Double>.makeStream()
-            let jobID = jobs[i].id
             let watcher = Task {
                 for await f in stream {
-                    if let idx = self.jobs.firstIndex(where: { $0.id == jobID }) {
+                    if let idx = self.jobs.firstIndex(where: { $0.id == id }) {
                         self.jobs[idx].status = .converting(f)
                     }
                 }
             }
             do {
                 let out = try await Converter.convert(
-                    midURL: jobs[i].source,
+                    midURL: source,
                     samples: piano,
                     transpose: transpose,
                     tempo: tempo,
@@ -89,23 +98,33 @@ final class ConverterModel: ObservableObject {
                     outputDirectory: outputDirectory,
                     progress: cont
                 )
-                jobs[i].status = .done(out)
-                if autoPlay { play(out, jobID: jobs[i].id) }
+                await watcher.value
+                if Task.isCancelled { break }
+                if let j = jobs.firstIndex(where: { $0.id == id }) {
+                    jobs[j].status = .done(out)
+                    if autoPlay { play(out, jobID: id) }
+                }
             } catch {
                 cont.finish()
-                jobs[i].status = .failed(error.localizedDescription)
+                await watcher.value
+                if let j = jobs.firstIndex(where: { $0.id == id }) {
+                    jobs[j].status = .failed(error.localizedDescription)
+                }
             }
-            await watcher.value
+        }
+        // Safety net: nothing may stay stuck mid-flight.
+        for i in jobs.indices {
+            if case .converting = jobs[i].status {
+                jobs[i].status = .queued
+            }
         }
     }
 
-    func clearFinished() {
+    func clearAll() {
+        convertTask?.cancel()
+        convertTask = nil
         stopPlayback()
-        jobs.removeAll { job in
-            if case .queued = job.status { return false }
-            if case .converting = job.status { return false }
-            return true
-        }
+        jobs.removeAll()
     }
 
     func play(_ url: URL, jobID: UUID) {
@@ -396,9 +415,9 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
-            Button("Clear finished") { model.clearFinished() }
+            Button("Clear") { model.clearAll() }
             Button(model.isConverting ? "Converting…" : "Convert all") {
-                Task { await model.convertAll() }
+                model.convertAll()
             }
             .buttonStyle(.borderedProminent)
             .disabled(model.isConverting || model.jobs.isEmpty)
