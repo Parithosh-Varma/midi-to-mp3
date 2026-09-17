@@ -275,12 +275,20 @@ public func parseMidi(_ data: Data) throws -> ParsedSong {
 }
 
 /// Shift every note by semitones, dropping notes that leave piano range.
-public func transposed(_ song: ParsedSong, by semitones: Int) -> ParsedSong {
-    guard semitones != 0 else { return song }
+public func transposed(_ song: ParsedSong, by semitones: Int) -> ParsedSong {    guard semitones != 0 else { return song }
     let notes = song.notes.compactMap { n -> ParsedNote? in
         let m = n.midi + semitones
         guard (21...108).contains(m) else { return nil }
         return ParsedNote(midi: m, start: n.start, end: n.end, velocity: n.velocity)
+    }
+    return ParsedSong(notes: notes, duration: notes.reduce(0) { max($0, $1.end) })
+}
+
+/// Speed multiplier: 2.0 plays twice as fast, 0.5 half time.
+public func spedUp(_ song: ParsedSong, by factor: Double) -> ParsedSong {
+    guard factor != 1.0, factor > 0 else { return song }
+    let notes = song.notes.map { n in
+        ParsedNote(midi: n.midi, start: n.start / factor, end: n.end / factor, velocity: n.velocity)
     }
     return ParsedSong(notes: notes, duration: notes.reduce(0) { max($0, $1.end) })
 }

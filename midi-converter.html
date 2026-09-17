@@ -99,6 +99,8 @@
         </select>
       </label>
       <label><input type="checkbox" id="reverbChk" checked> room ambience</label>
+      <label>Speed <input type="number" id="tempoInput" value="1" min="0.25" max="4" step="0.05"
+        style="width:64px;font:inherit;font-size:12px;padding:6px 8px;border-radius:8px;border:1px solid var(--brass-dim);background:rgba(0,0,0,0.35);color:var(--ivory);outline:none;" title="1 = file tempo, 2 = twice as fast">×</label>
     </div>
 
     <div id="files"></div>
@@ -553,8 +555,13 @@
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       meta.textContent = 'parsing…';
-      const { notes, duration } = parseMidi(bytes);
+      let { notes, duration } = parseMidi(bytes);
       if (!notes.length) throw new Error('no playable notes found');
+      const tempoF = Math.min(4, Math.max(0.25, parseFloat(document.getElementById('tempoInput').value) || 1));
+      if (tempoF !== 1) {
+        notes = notes.map(n => ({ ...n, start: n.start / tempoF, end: n.end / tempoF }));
+        duration = notes.reduce((m, n) => Math.max(m, n.end), 0);
+      }
       meta.textContent = notes.length + ' notes · ' + duration.toFixed(1) + 's · rendering…';
       log(file.name + ': ' + notes.length + ' notes, ' + duration.toFixed(1) + 's — rendering');
 

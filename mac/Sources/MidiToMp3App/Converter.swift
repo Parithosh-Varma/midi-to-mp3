@@ -20,6 +20,7 @@ enum Converter {
         midURL: URL,
         samples: [PianoSample],
         transpose: Int,
+        tempo: Double,
         format: ExportFormat,
         outputDirectory: URL,
         progress: AsyncStream<Double>.Continuation
@@ -27,6 +28,7 @@ enum Converter {
         let data = try Data(contentsOf: midURL)
         var song = try parseMidi(data)
         song = transposed(song, by: transpose)
+        song = spedUp(song, by: tempo)
         guard !song.notes.isEmpty else {
             throw NSError(domain: "MidiToMp3", code: 3,
                           userInfo: [NSLocalizedDescriptionKey: "No playable notes found."])

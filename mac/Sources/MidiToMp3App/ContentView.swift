@@ -34,6 +34,7 @@ final class ConverterModel: ObservableObject {
     @Published var jobs: [Job] = []
     @Published var format: ExportFormat = .m4a
     @Published var transpose: Int = 0
+    @Published var tempo: Double = 1.0
     @Published var autoPlay = true
     @Published var playingID: UUID?
     @Published var pausedID: UUID?
@@ -83,6 +84,7 @@ final class ConverterModel: ObservableObject {
                     midURL: jobs[i].source,
                     samples: piano,
                     transpose: transpose,
+                    tempo: tempo,
                     format: format,
                     outputDirectory: outputDirectory,
                     progress: cont
@@ -287,6 +289,9 @@ struct ContentView: View {
             .frame(width: 180)
             Stepper("Transpose \(model.transpose > 0 ? "+" : "")\(model.transpose)",
                     value: $model.transpose, in: -24...24)
+                .frame(width: 220)
+            Stepper("Speed ×\(String(format: "%.2f", model.tempo))",
+                    value: $model.tempo, in: 0.25...4.0, step: 0.05)
                 .frame(width: 220)
             Toggle("Auto-play", isOn: $model.autoPlay)
             Spacer()
