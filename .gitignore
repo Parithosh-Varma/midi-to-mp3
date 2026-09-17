@@ -1,0 +1,7 @@
+node_modules/
+salamander/
+*.mp3
+*.wav
+*.mid
+*.midi
+.DS_Store

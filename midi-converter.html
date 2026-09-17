@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MIDI → MP3 converter</title>
+<script src="https://unpkg.com/@breezystack/lamejs@1.2.7/dist/lamejs.iife.js"></script>
+<style>
+  :root {
+    --body-wood: #2b1810;
+    --wood-light: #40261a;
+    --ivory: #f5efe3;
+    --brass: #c89b4a;
+    --brass-dim: #8a6c37;
+    --text-warm: #efe6d8;
+    --text-muted: #b8a98f;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--body-wood);
+    background-image:
+      radial-gradient(ellipse at 20% 0%, rgba(255,255,255,0.03), transparent 60%),
+      radial-gradient(ellipse at 80% 100%, rgba(0,0,0,0.25), transparent 60%);
+    color: var(--text-warm);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .case {
+    width: min(920px, 100%);
+    padding: 36px 28px 28px;
+    background: linear-gradient(180deg, var(--wood-light), var(--body-wood));
+    border-radius: 14px;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 0 0 1px rgba(0,0,0,0.4);
+  }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 6px; flex-wrap: wrap; }
+  h1 { font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-weight: 500; font-size: 26px; margin: 0; color: var(--ivory); }
+  nav a { color: var(--brass); font-size: 13px; text-decoration: none; margin-left: 14px; }
+  nav a:hover { text-decoration: underline; }
+  p.sub { margin: 4px 0 22px; font-size: 14px; color: var(--text-muted); max-width: 62ch; line-height: 1.5; }
+  .drop {
+    border: 2px dashed var(--brass-dim); border-radius: 10px;
+    padding: 34px 20px; text-align: center; cursor: pointer;
+    background: rgba(0,0,0,0.3); transition: border-color 0.15s, background 0.15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--brass); background: rgba(200,155,74,0.08); }
+  .drop b { color: var(--ivory); }
+  .drop small { display: block; margin-top: 6px; color: var(--text-muted); font-size: 12px; }
+  .opts { display: flex; gap: 16px; align-items: center; margin: 14px 0; flex-wrap: wrap; font-size: 13px; color: var(--text-muted); }
+  .opts select {
+    font: inherit; font-size: 12px; padding: 8px 12px; border-radius: 999px;
+    border: 1px solid var(--brass-dim); background: rgba(0,0,0,0.35); color: var(--ivory);
+  }
+  .opts label { display: flex; gap: 6px; align-items: center; }
+  .opts input[type=checkbox] { accent-color: var(--brass); }
+  .file {
+    background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(200,155,74,0.25);
+    border-radius: 8px; padding: 12px 14px; margin-top: 10px;
+  }
+  .file-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .file-name { font-size: 14px; color: var(--ivory); word-break: break-all; }
+  .file-meta { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+  .bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); margin-top: 10px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0%; background: var(--brass); border-radius: 3px; transition: width 0.15s; }
+  .file-btns { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-size: 12px; padding: 7px 15px; border-radius: 999px;
+    border: 1px solid var(--brass-dim); background: transparent; color: var(--ivory); cursor: pointer;
+  }
+  button.primary { background: var(--brass); color: #221704; border-color: var(--brass); font-weight: 600; }
+  button:hover { background: rgba(200,155,74,0.15); }
+  button.primary:hover { background: #d6ab5c; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .log { margin-top: 16px; background: rgba(0,0,0,0.4); border-radius: 8px; padding: 12px 14px; font-size: 12px; line-height: 1.6; color: var(--text-muted); white-space: pre-wrap; max-height: 180px; overflow-y: auto; }
+</style>
+</head>
+<body>
+  <div class="case">
+    <header>
+      <h1>MIDI → MP3</h1>
+      <nav><a href="/lite">piano lite</a><a href="/">piano mind</a></nav>
+    </header>
+    <p class="sub">Drop <b>.mid</b> files and get piano-rendered <b>.mp3</b> back. Everything runs in your browser — nothing is uploaded. Rendered from real Salamander grand recordings (Alexander Holm, CC-BY 3.0 — same samples as the piano app), same engine as the <code>midi-to-mp3.mjs</code> command-line tool.</p>
+
+    <div class="drop" id="drop">
+      <b>Drop .mid files here</b> or click to choose
+      <small>Standard MIDI files, format 0/1 · tempo changes + sustain pedal honored</small>
+      <input id="fileInput" type="file" accept=".mid,.midi,audio/midi" multiple hidden>
+    </div>
+
+    <div class="opts">
+      <label>MP3 bitrate
+        <select id="bitrateSel">
+          <option value="128">128 kbps</option>
+          <option value="192" selected>192 kbps</option>
+          <option value="256">256 kbps</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="reverbChk" checked> room ambience</label>
+    </div>
+
+    <div id="files"></div>
+    <div class="log" id="log">waiting for files…</div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  const SR = 44100;
+  const drop = document.getElementById('drop');
+  const fileInput = document.getElementById('fileInput');
+  const filesEl = document.getElementById('files');
+  const logEl = document.getElementById('log');
+  const bitrateSel = document.getElementById('bitrateSel');
+  const reverbChk = document.getElementById('reverbChk');
+
+  function log(msg) {
+    logEl.textContent += (logEl.textContent.endsWith('…') ? '\n' : '\n') + msg;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  function frame() { return new Promise(r => setTimeout(r, 0)); }
+
+  // ---- SMF parser (same engine as midi-to-mp3.mjs) ----
+  function readVarLen(bytes, off) {
+    let v = 0, i = 0;
+    for (;;) {
+      const c = bytes[off + i];
+      v = (v << 7) | (c & 0x7f);
+      i++;
+      if (!(c & 0x80)) break;
+      if (i > 4) throw new Error('bad varlen');
+    }
+    return [v, i];
+  }
+
+  function parseMidi(bytes) {
+    const ascii = (o, n) => String.fromCharCode.apply(null, bytes.subarray(o, o + n));
+    if (bytes.length < 14 || ascii(0, 4) !== 'MThd') throw new Error('not a Standard MIDI File');
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const format = view.getUint16(8);
+    const ntracks = view.getUint16(10);
+    const division = view.getUint16(12);
+    if (format === 2) throw new Error('MIDI format 2 is not supported');
+    if (division & 0x8000) throw new Error('SMPTE time division is not supported');
+    const tpq = division || 480;
+
+    const tempos = [{ abs: 0, mpn: 500000 }];
+    const raw = [];
+    let pos = 14;
+    for (let t = 0; t < ntracks; t++) {
+      if (ascii(pos, 4) !== 'MTrk') throw new Error('track ' + t + ': missing MTrk');
+      const len = view.getUint32(pos + 4);
+      let p = pos + 8;
+      const end = p + len;
+      let abs = 0, status = 0;
+      while (p < end) {
+        const dv = readVarLen(bytes, p);
+        p += dv[1]; abs += dv[0];
+        const b = bytes[p];
+        if (b === 0xff) {
+          const type = bytes[p + 1];
+          const mv = readVarLen(bytes, p + 2);
+          const dataOff = p + 2 + mv[1];
+          if (type === 0x51 && mv[0] === 3) {
+            tempos.push({ abs, mpn: (bytes[dataOff] << 16) | (bytes[dataOff + 1] << 8) | bytes[dataOff + 2] });
+          }
+          p = dataOff + mv[0];
+        } else if (b === 0xf0 || b === 0xf7) {
+          const mv = readVarLen(bytes, p + 1);
+          p += 1 + mv[1] + mv[0];
+        } else {
+          if (b & 0x80) { status = b; p++; }
+          const kind = status & 0xf0, ch = status & 0x0f;
+          if (kind === 0x90 || kind === 0x80) {
+            const pitch = bytes[p], vel = bytes[p + 1];
+            p += 2;
+            raw.push({ abs, kind: (kind === 0x90 && vel > 0) ? 'on' : 'off', ch, pitch, vel });
+          } else if (kind === 0xa0) { p += 2; }
+          else if (kind === 0xb0) {
+            const cc = bytes[p], val = bytes[p + 1];
+            p += 2;
+            if (cc === 64) raw.push({ abs, kind: 'pedal', ch, down: val >= 64 });
+            else if (cc === 123 || cc === 120) raw.push({ abs, kind: 'allOff', ch });
+          } else if (kind === 0xc0 || kind === 0xd0) { p += 1; }
+          else if (kind === 0xe0) { p += 2; }
+          else throw new Error('bad running status');
+        }
+      }
+      pos = end;
+    }
+
+    tempos.sort((a, b) => a.abs - b.abs);
+    raw.sort((a, b) => a.abs - b.abs);
+    const ticksToSec = (tick) => {
+      let sec = 0, lastAbs = 0, lastMpn = tempos[0].mpn;
+      for (let i = 1; i < tempos.length; i++) {
+        if (tempos[i].abs > tick) break;
+        sec += ((tempos[i].abs - lastAbs) * lastMpn) / 1000000 / tpq;
+        lastAbs = tempos[i].abs; lastMpn = tempos[i].mpn;
+      }
+      return sec + ((tick - lastAbs) * lastMpn) / 1000000 / tpq;
+    };
+
+    const notes = [];
+    const sounding = new Map(), heldByPedal = new Map();
+    const pedal = new Array(16).fill(false);
+    const key = (ch, pitch) => ch * 256 + pitch;
+    function flush(k, s, abs, pitch) {
+      const start = ticksToSec(s.startAbs), end = ticksToSec(abs);
+      if (end > start) notes.push({ midi: pitch, start, end, vel: s.vel });
+    }
+    for (const ev of raw) {
+      if (ev.kind === 'on') {
+        const k = key(ev.ch, ev.pitch);
+        if (sounding.has(k)) flush(k, sounding.get(k), ev.abs, ev.pitch);
+        if (heldByPedal.has(k)) { flush(k, heldByPedal.get(k), ev.abs, ev.pitch); heldByPedal.delete(k); }
+        sounding.set(k, { startAbs: ev.abs, vel: ev.vel });
+      } else if (ev.kind === 'off') {
+        const k = key(ev.ch, ev.pitch);
+        if (!sounding.has(k)) continue;
+        const s = sounding.get(k);
+        sounding.delete(k);
+        if (pedal[ev.ch]) heldByPedal.set(k, s);
+        else flush(k, s, ev.abs, ev.pitch);
+      } else if (ev.kind === 'pedal') {
+        pedal[ev.ch] = ev.down;
+        if (!ev.down) {
+          for (const [k, s] of [...heldByPedal]) {
+            if ((k / 256 | 0) === ev.ch) { heldByPedal.delete(k); flush(k, s, ev.abs, k % 256); }
+          }
+        }
+      } else if (ev.kind === 'allOff') {
+        for (const [k, s] of [...sounding]) {
+          if ((k / 256 | 0) === ev.ch) { sounding.delete(k); flush(k, s, ev.abs, k % 256); }
+        }
+        for (const [k, s] of [...heldByPedal]) {
+          if ((k / 256 | 0) === ev.ch) { heldByPedal.delete(k); flush(k, s, ev.abs, k % 256); }
+        }
+      }
+    }
+    const lastAbs = raw.length ? raw[raw.length - 1].abs : 0;
+    const endAbs = lastAbs + tpq;
+    for (const [k, s] of sounding) flush(k, s, endAbs, k % 256);
+    for (const [k, s] of heldByPedal) flush(k, s, endAbs, k % 256);
+
+    const clean = notes.filter(n => n.midi >= 21 && n.midi <= 108 && n.end > n.start);
+    clean.sort((a, b) => a.start - b.start);
+    const duration = clean.reduce((m, n) => Math.max(m, n.end), 0);
+    return { notes: clean, duration };
+  }
+
+  // ---- piano renderer (same engine as midi-to-mp3.mjs) ----
+  const PARTIALS = [
+    { m: 1, a: 1.0, d: 1.0 }, { m: 2, a: 0.3, d: 2.4 }, { m: 3, a: 0.13, d: 3.8 },
+    { m: 4, a: 0.06, d: 5.6 }, { m: 5, a: 0.03, d: 7.6 },
+    { m: 6, a: 0.015, d: 10.0 }, { m: 7, a: 0.008, d: 13.0 },
+  ];
+  const INHARM_B = 0.00018, ATTACK_S = 0.005, RELEASE_S = 0.16;
+  const DETUNE_CENTS = 2.2, BOARD_CUTOFF = 700, BOARD_GAIN = 0.32;
+  const THUMP_MS = 0.045, THUMP_GAIN = 0.1;
+  const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+  async function renderSynth(notes, duration, reverb, onProgress) {
+    const total = Math.ceil((duration + 1.8) * SR);
+    const left = new Float32Array(total);
+    const right = new Float32Array(total);
+    const detuneRatio = Math.pow(2, DETUNE_CENTS / 1200);
+    let seed = 0x12345678;
+    const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296) * 2 - 1;
+    for (let ni = 0; ni < notes.length; ni++) {
+      const nn = notes[ni];
+      const freq = midiToFreq(nn.midi);
+      const velN = nn.vel / 127;
+      const decayBase = 1.0 + ((nn.midi - 21) / 87) * 2.2;
+      const velGain = Math.pow(velN, 1.3) * 0.42;
+      const bright = 0.25 + 0.75 * velN;
+      const startIdx = Math.floor(nn.start * SR);
+      const holdEnd = Math.floor(nn.end * SR);
+      const renderEnd = Math.min(total, holdEnd + Math.floor(RELEASE_S * SR));
+      if (startIdx >= total) continue;
+      const omegasL = [], omegasR = [], amps = [], decays = [];
+      for (const p of PARTIALS) {
+        const f = p.m * freq * Math.sqrt(1 + INHARM_B * p.m * p.m);
+        const glassDamp = Math.max(0, (f - 3500) / 1000) * 3;
+        omegasL.push(((2 * Math.PI * f) / SR) / detuneRatio);
+        omegasR.push(((2 * Math.PI * f) / SR) * detuneRatio);
+        amps.push(p.a * Math.pow(bright, p.m - 1));
+        decays.push(decayBase * p.d + glassDamp);
+      }
+      const phasesL = new Array(PARTIALS.length).fill(0);
+      const phasesR = new Array(PARTIALS.length).fill(0);
+      const thumpN = Math.min(renderEnd - startIdx, Math.floor(THUMP_MS * SR));
+      let thumpLp = 0;
+      const thumpAlpha = Math.min(1, (2 * Math.PI * 500) / SR);
+      for (let i = startIdx; i < renderEnd; i++) {
+        const t = (i - startIdx) / SR;
+        let env = t < ATTACK_S ? 0.5 - 0.5 * Math.cos(Math.PI * (t / ATTACK_S)) : 1;
+        if (i > holdEnd) {
+          const rt = Math.min(1, ((i - holdEnd) / SR) / RELEASE_S);
+          env *= 0.5 + 0.5 * Math.cos(Math.PI * rt);
+        }
+        let sL = 0, sR = 0;
+        for (let k = 0; k < PARTIALS.length; k++) {
+          const amp = amps[k] * Math.exp(-decays[k] * t);
+          if (amp < 0.0004) continue;
+          phasesL[k] += omegasL[k];
+          phasesR[k] += omegasR[k];
+          sL += amp * Math.sin(phasesL[k]);
+          sR += amp * Math.sin(phasesR[k]);
+        }
+        const ti = i - startIdx;
+        if (ti < thumpN) {
+          thumpLp += thumpAlpha * (rand() - thumpLp);
+          const tg = THUMP_GAIN * velN * Math.exp(-ti / SR / 0.012);
+          sL += thumpLp * tg;
+          sR += thumpLp * tg;
+        }
+        left[i] += sL * env * velGain;
+        right[i] += sR * env * velGain;
+      }
+      if (ni % 150 === 0) { onProgress(ni / notes.length * 0.8); await frame(); }
+    }
+    // soundboard body
+    {
+      const alpha = Math.min(1, (2 * Math.PI * BOARD_CUTOFF) / SR);
+      let lpL = 0, lpR = 0;
+      for (let i = 0; i < total; i++) {
+        lpL += alpha * (left[i] - lpL);
+        lpR += alpha * (right[i] - lpR);
+        left[i] += lpL * BOARD_GAIN;
+        right[i] += lpR * BOARD_GAIN;
+      }
+    }
+    if (reverb) {
+      onProgress(0.85); await frame();
+      const dryL = Float32Array.from(left);
+      const dryR = Float32Array.from(right);
+      for (const [delayS, gain] of [[0.231, 0.17], [0.317, 0.11]]) {
+        const d = Math.floor(delayS * SR);
+        for (let i = d; i < total; i++) left[i] += dryL[i - d] * gain;
+      }
+      for (const [delayS, gain] of [[0.257, 0.17], [0.463, 0.09]]) {
+        const d = Math.floor(delayS * SR);
+        for (let i = d; i < total; i++) right[i] += dryR[i - d] * gain;
+      }
+    }
+    let peak = 0;
+    for (let i = 0; i < total; i++) {
+      const a = Math.abs(left[i]); if (a > peak) peak = a;
+      const b = Math.abs(right[i]); if (b > peak) peak = b;
+    }
+    if (peak > 0) {
+      const g = 0.89 / peak;
+      for (let i = 0; i < total; i++) {
+        left[i] = Math.tanh(left[i] * g * 1.05) * 0.92;
+        right[i] = Math.tanh(right[i] * g * 1.05) * 0.92;
+      }
+      let p2 = 0;
+      for (let i = 0; i < total; i++) {
+        const a = Math.abs(left[i]); if (a > p2) p2 = a;
+        const b = Math.abs(right[i]); if (b > p2) p2 = b;
+      }
+      const g2 = 0.89 / (p2 || 1);
+      for (let i = 0; i < total; i++) { left[i] *= g2; right[i] *= g2; }
+    }
+    onProgress(0.9);
+    return { left, right };
+  }
+
+  // ---- sample engine: real Salamander grand recordings ----
+  const SAMPLE_BASE = 'https://tonejs.github.io/audio/salamander/';
+  const SAMPLE_DEFS = [];
+  for (let oct = 2; oct <= 6; oct++) {
+    for (const [name, semi] of [['C', 0], ['Ds', 3], ['Fs', 6], ['A', 9]]) {
+      SAMPLE_DEFS.push({ name: name + oct, midi: (oct + 1) * 12 + semi });
+    }
+  }
+  const sampleCache = new Map();
+  let decodeCtx = null;
+  function nearestSampleName(midi) {
+    let best = SAMPLE_DEFS[0], bd = Infinity;
+    for (const s of SAMPLE_DEFS) {
+      const d = Math.abs(s.midi - midi);
+      if (d < bd) { bd = d; best = s; }
+    }
+    return best;
+  }
+  async function ensureSamples(notes, onProgress) {
+    const needed = new Map();
+    for (const n of notes) {
+      const s = nearestSampleName(n.midi);
+      if (!sampleCache.has(s.name) && !needed.has(s.name)) needed.set(s.name, s);
+    }
+    if (!decodeCtx) decodeCtx = new OfflineAudioContext(1, 1, 44100);
+    let done = 0;
+    for (const s of needed.values()) {
+      const r = await fetch(SAMPLE_BASE + s.name + '.mp3');
+      if (!r.ok) throw new Error('sample fetch failed: ' + s.name);
+      const raw = await r.arrayBuffer();
+      const decoded = await decodeCtx.decodeAudioData(raw);
+      sampleCache.set(s.name, { midi: s.midi, buffer: decoded });
+      done++;
+      onProgress(done / needed.size);
+      await frame();
+    }
+    return sampleCache;
+  }
+  function normalizeStereo(left, right) {
+    let peak = 0;
+    for (let i = 0; i < left.length; i++) {
+      const a = Math.abs(left[i]); if (a > peak) peak = a;
+      const b = Math.abs(right[i]); if (b > peak) peak = b;
+    }
+    if (peak > 0) {
+      const g = 0.89 / peak;
+      for (let i = 0; i < left.length; i++) {
+        left[i] = Math.tanh(left[i] * g * 1.05) * 0.92;
+        right[i] = Math.tanh(right[i] * g * 1.05) * 0.92;
+      }
+      let p2 = 0;
+      for (let i = 0; i < left.length; i++) {
+        const a = Math.abs(left[i]); if (a > p2) p2 = a;
+        const b = Math.abs(right[i]); if (b > p2) p2 = b;
+      }
+      const g2 = 0.89 / (p2 || 1);
+      for (let i = 0; i < left.length; i++) { left[i] *= g2; right[i] *= g2; }
+    }
+  }
+  async function renderWithSamples(notes, duration, cache, reverb, onProgress) {
+    const totalSec = duration + 1.8;
+    const ctx = new OfflineAudioContext(2, Math.ceil(totalSec * SR), SR);
+    const master = ctx.createGain();
+    master.connect(ctx.destination);
+    if (reverb) {
+      // shared airy feedback room (recordings already carry the hall)
+      for (const [d, g] of [[0.231, 0.08], [0.317, 0.06], [0.463, 0.05]]) {
+        const dl = ctx.createDelay(1); dl.delayTime.value = d;
+        const gg = ctx.createGain(); gg.gain.value = g;
+        master.connect(dl); dl.connect(gg); gg.connect(master);
+      }
+    }
+    for (let ni = 0; ni < notes.length; ni++) {
+      const nn = notes[ni];
+      const s = nearestSampleName(nn.midi);
+      const entry = cache.get(s.name);
+      if (!entry) continue;
+      const velN = nn.vel / 127;
+      const peak = Math.pow(velN, 1.2) * 0.6;
+      const src = ctx.createBufferSource();
+      src.buffer = entry.buffer;
+      src.playbackRate.value = Math.pow(2, (nn.midi - entry.midi) / 12);
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 1200 + velN * 11000;
+      lp.Q.value = 0.3;
+      const g = ctx.createGain();
+      const t0 = nn.start, t1 = nn.end;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t0 + 0.004);
+      g.gain.setValueAtTime(Math.max(0.0002, peak), Math.max(t0 + 0.004, t1));
+      g.gain.exponentialRampToValueAtTime(0.0001, t1 + 0.12);
+      src.connect(lp); lp.connect(g); g.connect(master);
+      src.start(t0);
+      try { src.stop(t1 + 0.15); } catch (e) {}
+      if (ni % 200 === 0) { onProgress(ni / notes.length * 0.15); await frame(); }
+    }
+    const steps = 8;
+    for (let st = 1; st <= steps; st++) {
+      const t = totalSec * st / steps;
+      ctx.suspend(t).then(() => { onProgress(0.15 + 0.7 * st / steps); ctx.resume(); });
+    }
+    const rendered = await ctx.startRendering();
+    const left = rendered.getChannelData(0).slice();
+    const right = rendered.getChannelData(1).slice();
+    normalizeStereo(left, right);
+    onProgress(0.9);
+    return { left, right };
+  }
+
+  function floatTo16(buf) {
+    const out = new Int16Array(buf.length);
+    for (let i = 0; i < buf.length; i++) {
+      const s = Math.max(-1, Math.min(1, buf[i]));
+      out[i] = s < 0 ? Math.round(s * 32768) : Math.round(s * 32767);
+    }
+    return out;
+  }
+
+  function wavBytes(pcmL, pcmR) {
+    const data = new Int16Array(pcmL.length * 2);
+    for (let i = 0; i < pcmL.length; i++) { data[i * 2] = pcmL[i]; data[i * 2 + 1] = pcmR[i]; }
+    const h = new DataView(new ArrayBuffer(44));
+    const ws = (o, s) => { for (let i = 0; i < s.length; i++) h.setUint8(o + i, s.charCodeAt(i)); };
+    ws(0, 'RIFF'); h.setUint32(4, 36 + data.length * 2, true); ws(8, 'WAVE');
+    ws(12, 'fmt '); h.setUint32(16, 16, true); h.setUint16(20, 1, true); h.setUint16(22, 2, true);
+    h.setUint32(24, SR, true); h.setUint32(28, SR * 4, true); h.setUint16(32, 4, true); h.setUint16(34, 16, true);
+    ws(36, 'data'); h.setUint32(40, data.length * 2, true);
+    return new Blob([h.buffer, data.buffer], { type: 'audio/wav' });
+  }
+
+  async function encodeMp3(pcmL, pcmR, bitrate, onProgress) {
+    if (typeof lamejs === 'undefined' || !lamejs.Mp3Encoder) {
+      throw new Error('MP3 encoder failed to load (CDN unreachable?). WAV download still works.');
+    }
+    const enc = new lamejs.Mp3Encoder(2, SR, bitrate);
+    const CHUNK = 11520, parts = [];
+    for (let i = 0; i < pcmL.length; i += CHUNK) {
+      const d = enc.encodeBuffer(pcmL.subarray(i, i + CHUNK), pcmR.subarray(i, i + CHUNK));
+      if (d.length) parts.push(new Uint8Array(d));
+      if (i % (CHUNK * 20) === 0) { onProgress(0.9 + 0.1 * (i / pcmL.length)); await frame(); }
+    }
+    const end = enc.flush();
+    if (end.length) parts.push(new Uint8Array(end));
+    return new Blob(parts, { type: 'audio/mpeg' });
+  }
+
+  // ---- UI ----
+  let audioCtx = null, currentSrc = null;
+  function stopPreview() {
+    if (currentSrc) { try { currentSrc.stop(); } catch (e) {} currentSrc = null; }
+  }
+
+  async function handleFile(file) {
+    const card = document.createElement('div');
+    card.className = 'file';
+    card.innerHTML = '<div class="file-top"><span class="file-name"></span><span class="file-meta">queued</span></div>' +
+      '<div class="bar"><div></div></div><div class="file-btns"></div>';
+    card.querySelector('.file-name').textContent = file.name;
+    const meta = card.querySelector('.file-meta');
+    const bar = card.querySelector('.bar > div');
+    const btns = card.querySelector('.file-btns');
+    filesEl.prepend(card);
+    const setBar = (f) => { bar.style.width = (f * 100).toFixed(1) + '%'; };
+
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      meta.textContent = 'parsing…';
+      const { notes, duration } = parseMidi(bytes);
+      if (!notes.length) throw new Error('no playable notes found');
+      meta.textContent = notes.length + ' notes · ' + duration.toFixed(1) + 's · rendering…';
+      log(file.name + ': ' + notes.length + ' notes, ' + duration.toFixed(1) + 's — rendering');
+
+      const bitrate = parseInt(bitrateSel.value, 10);
+      let left, right;
+      try {
+        meta.textContent = notes.length + ' notes · ' + duration.toFixed(1) + 's · loading grand…';
+        log(file.name + ': fetching Salamander grand samples');
+        const cache = await ensureSamples(notes, (f) => setBar(f * 0.1));
+        meta.textContent = notes.length + ' notes · ' + duration.toFixed(1) + 's · rendering grand…';
+        ({ left, right } = await renderWithSamples(notes, duration, cache, reverbChk.checked, (f) => setBar(0.1 + f * 0.8)));
+      } catch (err) {
+        log(file.name + ': samples unavailable (' + err.message + ') — synth fallback');
+        meta.textContent = notes.length + ' notes · ' + duration.toFixed(1) + 's · rendering (synth)…';
+        ({ left, right } = await renderSynth(notes, duration, reverbChk.checked, (f) => setBar(0.1 + f * 0.8)));
+      }
+      const pcmL = floatTo16(left), pcmR = floatTo16(right);
+      const wavBlob = wavBytes(pcmL, pcmR);
+      const wavUrl = URL.createObjectURL(wavBlob);
+      setBar(0.9);
+      meta.textContent = notes.length + ' notes · ' + duration.toFixed(1) + 's · encoding MP3…';
+
+      const mp3Blob = await encodeMp3(pcmL, pcmR, bitrate, setBar);
+      const mp3Url = URL.createObjectURL(mp3Blob);
+      setBar(1);
+      const base = file.name.replace(/\.(mid|midi)$/i, '');
+      meta.textContent = notes.length + ' notes · ' + duration.toFixed(1) + 's · ' + (mp3Blob.size / 1024).toFixed(0) + ' KB MP3';
+      log('done: ' + base + '.mp3 (' + (mp3Blob.size / 1024).toFixed(0) + ' KB @ ' + bitrate + ' kbps)');
+
+      const mkBtn = (label, primary) => {
+        const b = document.createElement('button');
+        b.textContent = label;
+        if (primary) b.className = 'primary';
+        btns.appendChild(b);
+        return b;
+      };
+      const playBtn = mkBtn('Play');
+      playBtn.addEventListener('click', async () => {
+        stopPreview();
+        if (playBtn.textContent === 'Stop') { playBtn.textContent = 'Play'; return; }
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+        const arr = await wavBlob.arrayBuffer();
+        const decoded = await audioCtx.decodeAudioData(arr);
+        const src = audioCtx.createBufferSource();
+        src.buffer = decoded;
+        src.connect(audioCtx.destination);
+        src.onended = () => { playBtn.textContent = 'Play'; currentSrc = null; };
+        src.start();
+        currentSrc = src;
+        playBtn.textContent = 'Stop';
+      });
+      const mp3Btn = mkBtn('Download MP3', true);
+      mp3Btn.addEventListener('click', () => {
+        const a = document.createElement('a');
+        a.href = mp3Url; a.download = base + '.mp3';
+        document.body.appendChild(a); a.click(); a.remove();
+      });
+      const wavBtn = mkBtn('Download WAV');
+      wavBtn.addEventListener('click', () => {
+        const a = document.createElement('a');
+        a.href = wavUrl; a.download = base + '.wav';
+        document.body.appendChild(a); a.click(); a.remove();
+      });
+    } catch (err) {
+      meta.textContent = 'failed: ' + err.message;
+      log(file.name + ' FAILED: ' + err.message);
+    }
+  }
+
+  drop.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    [...fileInput.files].forEach(handleFile);
+    fileInput.value = '';
+  });
+  ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, (e) => {
+    e.preventDefault(); drop.classList.add('over');
+  }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, (e) => {
+    e.preventDefault(); drop.classList.remove('over');
+  }));
+  drop.addEventListener('drop', (e) => {
+    const fs = [...(e.dataTransfer.files || [])].filter(f => /\.(mid|midi)$/i.test(f.name));
+    if (!fs.length) { log('drop ignored: no .mid files'); return; }
+    fs.forEach(handleFile);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+{"bin": {"midi-to-mp3": "./midi-to-mp3.mjs"}, "dependencies": {"@breezystack/lamejs": "^1.2.7"}, "description": "Convert Standard MIDI files to MP3 with a real grand piano sound. Zero native dependencies.", "license": "MIT", "name": "midi-to-mp3", "scripts": {"convert": "node midi-to-mp3.mjs", "fetch-samples": "./fetch-samples.sh"}, "type": "module", "version": "1.0.0"}
