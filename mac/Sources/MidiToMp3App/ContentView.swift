@@ -36,6 +36,7 @@ final class ConverterModel: ObservableObject {
     @Published var transpose: Int = 0
     @Published var autoPlay = true
     @Published var playingID: UUID?
+    @Published var pausedID: UUID?
     @Published var outputDirectory: URL = FileManager.default.urls(for: .musicDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("MidiToMp3", isDirectory: true)
     @Published var isConverting = false
@@ -110,10 +111,14 @@ final class ConverterModel: ObservableObject {
         do {
             player = try AVAudioPlayer(contentsOf: url)
             player?.delegate = PlaybackDelegate { [weak self] in
-                Task { @MainActor in self?.playingID = nil }
+                Task { @MainActor in
+                    self?.playingID = nil
+                    self?.pausedID = nil
+                }
             }
             player?.play()
             playingID = jobID
+            pausedID = nil
         } catch {
             playingID = nil
         }
@@ -123,11 +128,21 @@ final class ConverterModel: ObservableObject {
         player?.stop()
         player = nil
         playingID = nil
+        pausedID = nil
     }
 
     func togglePreview(for job: Job) {
         if playingID == job.id {
-            stopPlayback()
+            // Pause: keeps position so Play resumes where you left off.
+            player?.pause()
+            pausedID = job.id
+            playingID = nil
+            return
+        }
+        if pausedID == job.id {
+            player?.play()
+            playingID = job.id
+            pausedID = nil
             return
         }
         if case let .done(url) = job.status {
@@ -347,7 +362,10 @@ struct ContentView: View {
         switch job.status {
         case let .done(url):
             if model.playingID == job.id {
-                Button("Stop") { model.togglePreview(for: job) }
+                Button("Pause") { model.togglePreview(for: job) }
+                    .buttonStyle(.link)
+            } else if model.pausedID == job.id {
+                Button("Resume") { model.togglePreview(for: job) }
                     .buttonStyle(.link)
             } else {
                 Button("Play") { model.togglePreview(for: job) }
