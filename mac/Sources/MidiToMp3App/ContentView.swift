@@ -1,6 +1,18 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import AVFoundation
 import MidiToMp3Core
+
+/// Forwards AVAudioPlayer finish events to SwiftUI state.
+private final class PlaybackDelegate: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
+    private let onFinish: @Sendable () -> Void
+    init(onFinish: @escaping @Sendable () -> Void) {
+        self.onFinish = onFinish
+    }
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        onFinish()
+    }
+}
 
 struct Job: Identifiable {
     enum Status: Equatable {
@@ -22,11 +34,14 @@ final class ConverterModel: ObservableObject {
     @Published var jobs: [Job] = []
     @Published var format: ExportFormat = .m4a
     @Published var transpose: Int = 0
+    @Published var autoPlay = true
+    @Published var playingID: UUID?
     @Published var outputDirectory: URL = FileManager.default.urls(for: .musicDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("MidiToMp3", isDirectory: true)
     @Published var isConverting = false
 
     let samples = SampleManager()
+    private var player: AVAudioPlayer?
 
     func addFiles(_ urls: [URL]) {
         let mids = urls.filter { ["mid", "midi"].contains($0.pathExtension.lowercased()) }
@@ -38,6 +53,7 @@ final class ConverterModel: ObservableObject {
     func convertAll() async {
         guard !isConverting else { return }
         isConverting = true
+        stopPlayback()
         defer { isConverting = false }
         let piano: [MidiToMp3Core.PianoSample]
         do {
@@ -71,6 +87,7 @@ final class ConverterModel: ObservableObject {
                     progress: cont
                 )
                 jobs[i].status = .done(out)
+                if autoPlay { play(out, jobID: jobs[i].id) }
             } catch {
                 cont.finish()
                 jobs[i].status = .failed(error.localizedDescription)
@@ -80,10 +97,41 @@ final class ConverterModel: ObservableObject {
     }
 
     func clearFinished() {
+        stopPlayback()
         jobs.removeAll { job in
             if case .queued = job.status { return false }
             if case .converting = job.status { return false }
             return true
+        }
+    }
+
+    func play(_ url: URL, jobID: UUID) {
+        stopPlayback()
+        do {
+            player = try AVAudioPlayer(contentsOf: url)
+            player?.delegate = PlaybackDelegate { [weak self] in
+                Task { @MainActor in self?.playingID = nil }
+            }
+            player?.play()
+            playingID = jobID
+        } catch {
+            playingID = nil
+        }
+    }
+
+    func stopPlayback() {
+        player?.stop()
+        player = nil
+        playingID = nil
+    }
+
+    func togglePreview(for job: Job) {
+        if playingID == job.id {
+            stopPlayback()
+            return
+        }
+        if case let .done(url) = job.status {
+            play(url, jobID: job.id)
         }
     }
 }
@@ -225,6 +273,7 @@ struct ContentView: View {
             Stepper("Transpose \(model.transpose > 0 ? "+" : "")\(model.transpose)",
                     value: $model.transpose, in: -24...24)
                 .frame(width: 220)
+            Toggle("Auto-play", isOn: $model.autoPlay)
             Spacer()
             Button("Output…") { showOutputPicker = true }
             Button("Reveal") {
@@ -297,6 +346,13 @@ struct ContentView: View {
     private func actions(for job: Job) -> some View {
         switch job.status {
         case let .done(url):
+            if model.playingID == job.id {
+                Button("Stop") { model.togglePreview(for: job) }
+                    .buttonStyle(.link)
+            } else {
+                Button("Play") { model.togglePreview(for: job) }
+                    .buttonStyle(.link)
+            }
             Button("Show") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                 .buttonStyle(.link)
         case .failed:
